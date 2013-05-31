@@ -1,0 +1,2 @@
+find /mp3z/genre/artist/album -type f -print | sort | perl -pe \
+'s|/mp3z|http://mp3z.darkuncle.net|' > /mp3z/playlists/artist_-_album.m3u

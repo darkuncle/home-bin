@@ -1,0 +1,87 @@
+#!/usr/bin/perl
+require 5;
+use strict;
+#Time-stamp: "2002-01-16 17:46:53 MST"
+
+my $old_file = $ARGV[0] || '.dirlist.old';
+my $new_file = $ARGV[1] || '.dirlist';
+my $diff_dir = $ARGV[2] || '.dirlist_newsies';
+my $diffs_to_consider = $ARGV[3] || 14;
+
+#
+# For each file you want to register novelty in, copy it to an "old file"
+# before regenerating it.  Then after regenerating it, run this program
+# and pipe its output to some other file.  You will need to create
+# a directory to hold this program's records of the new items in the
+# past N regenerations of your data file.
+#
+# Sample use:
+#  cp .dirlist .dirlist.old
+#  superduper_regenerator .dirlist
+#  novelty .dirlist.old .dirlist .dirlist_newsies > new_directories.txt
+#
+#---------------------------------------------------------------------------
+
+# NOTE: this script is called by mp3update, which runs from cron
+
+make_new_newsies($old_file, $new_file, "$diff_dir/$^T.new");
+my %new_items;
+read_and_update_newsies($diff_dir);
+print_newsies($diff_dir);
+exit;
+
+############################################################################
+
+sub make_new_newsies {
+  my($old_file, $new_file, $out_file) = @_;
+  die "old file $old_file doesn't exist" unless -e $old_file;
+  die "new file $new_file doesn't exist" unless -e $new_file;
+  open(NEWSIES, ">$out_file")
+   or die "Can't write-open new-items file $out_file: $!";
+  open(DIFF, "diff $old_file $new_file |")
+   or die "Can't open diff pipe: $!";
+  while(<DIFF>) {
+    print NEWSIES $_ if s/^> //s;
+  }
+  close(DIFF);
+  close(NEWSIES);
+  return;
+}
+
+#---------------------------------------------------------------------------
+
+sub read_and_update_newsies {
+  my $diff_dir = $_[0];
+  opendir(DDIR, $diff_dir) or die "Can't opendir $diff_dir: $!";
+  my @files = map "$diff_dir/$_", sort grep m/^\d+\.new$/s, readdir(DDIR);
+  closedir(DDIR);
+
+  # Nix old .new files.
+  while(@files > $diffs_to_consider) {
+    my $to_unlink = shift @files;
+    unlink($to_unlink) or warn "Can't unlink $to_unlink: $!";
+  }
+
+  # Read the remaining ones, starting with the oldest
+  foreach my $newsie (@files) {
+    if(open(NEWSIE, "<$newsie")) {
+      @new_items{<NEWSIE>} = (); # making them exist
+      close(NEWSIE);
+    } else {
+      warn "Can't read-open newsie file $newsie: $!";
+    }
+  }
+  return;
+}
+
+#---------------------------------------------------------------------------
+
+sub print_newsies {
+  delete $new_items{''};
+  print(sort keys %new_items);
+  return;
+}
+
+#---------------------------------------------------------------------------
+
+__END__

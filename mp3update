@@ -1,0 +1,42 @@
+#!/bin/sh
+
+PATH=/bin:/sbin:/usr/bin:/usr/local/bin:/usr/local/sbin:/home/sfrancis/bin
+# backup existing
+echo "backup existing files ..."
+cp /mp3z/.dirlist /mp3z/.dirlist.bak
+cp /mp3z/.amounts /mp3z/.amounts.bak
+cp /mp3z/.contents /mp3z/.contents.bak
+echo " done."
+
+# make the list of directories
+echo "making the directory list ..."
+find /mp3z -follow -path '/mp3z/.*' -prune -o -type d -print >/mp3z/.dirlist
+echo " done."
+
+# make the exhaustive list (mp3 and ogg only)
+echo "making the contents list ..."
+find /mp3z -follow -path '/mp3z/.*' -prune -o \( -name '*.mp3'\
+ -o -name '*.ogg' -o -name '*.MP3' \) -print > /mp3z/.contents
+echo " done."
+
+# make the current volume readings
+echo "making the amounts list ..."
+find /mp3z -follow -mindepth 1 -maxdepth 1 -path '/mp3z/.*' -prune -o\
+ -type d -exec du -skL {} \; > /mp3z/.amounts
+echo " done."
+
+# run TorgoX's 'novelty' script to get the new stuff
+echo "generating dirlist diff ..."
+novelty /mp3z/.dirlist.bak /mp3z/.dirlist /mp3z/.dirlist_diffs\
+ >/mp3z/.dirlist.diff
+echo "`date`" >> /mp3z/.dirlist.diff
+echo " done."
+
+echo "generating contents diff ..."
+novelty /mp3z/.contents.bak /mp3z/.contents \
+/mp3z/.contents_diffs > /mp3z/.contents.diff
+echo "`date`" >> /mp3z/.contents.diff
+echo " done."
+
+# log the date
+echo "Script completed at `date`"

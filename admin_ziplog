@@ -1,0 +1,111 @@
+#!/bin/sh
+# admin_ziplog; 20020407 | sfrancis@example.com
+
+# since regular ziplog won't work until NFS and filesystem perms are fixed,
+# commands must be run remotely as series of ssh commands from an admin box.
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+case "$1" in
+
+'apache')
+  for SYSTEM in prodweb1 prodweb2 prodweb3 prodweb4 prodweb5
+    do ssh $SYSTEM "hostname && cd /usr/local/apache/logs &&\
+      gzip -9c access_log >/log/access_log.\`date +%y%m%d\`.gz &&\
+      gzip -9c error_log >/log/error_log.\`date +%y%m%d\`.gz &&\
+      gzip -9c example.com-access_log\
+        >/log/example.com-access_log.\`date +%y%m%d\`.gz &&\
+      echo \"size before:\" &&\
+      du -k access_log error_log example.com-access_log &&\
+      echo \"size zipped:\" &&\
+      du -k /log/access_log.\`date +%y%m%d\`.gz\
+            /log/error_log.\`date +%y%m%d\`.gz\
+            /log/example.com-access_log.\`date +%y%m%d\`.gz &&\
+      cat /dev/null >access_log &&\
+      cat /dev/null >error_log &&\
+      cat /dev/null >example.com-access_log"
+      echo "$SYSTEM complete at `date`" 
+    done
+echo "$0 completed at `date`"
+;;
+
+'weblogic')
+
+# prodwl1 and 3
+  for SYSTEM in prodwl1 prodwl3
+  do ssh $SYSTEM "hostname && cd /usr/local/weblogic &&\
+    gzip -9c managed-\`hostname\`.log\
+      >/log/managed-\`hostname\`_log.\`date +%y%m%d\`.gz &&\
+    gzip -9c access.log >/log/access_log.\`date +%y%m%d\`.gz
+    cd /web/server/weblogic/myserver &&\
+    gzip -9c app2.log > /log/app2_log.\`date +%y%m%d\`.gz &&\
+    gzip -9c app2ejb.log > /log/app2ejb_log.\`date +%y%m%d\`.gz &&\
+    echo \"size before:\" &&\
+    du -k /usr/local/weblogic/managed-\`hostname\`.log\
+          app2.log app2ejb.log &&\
+    echo \"size zipped:\" &&\
+    du -k /log/managed-\`hostname\`_log.\`date +%y%m%d\`.gz\
+          /log/app2_log.\`date +%y%m%d\`.gz\
+          /log/app2ejb_log.\`date +%y%m%d\`.gz &&\
+    cat /dev/null >app2.log &&\
+    cat /dev/null >app2ejb.log" 
+    echo "$SYSTEM completed at `date`" 
+  done
+# once we cut to cluster, prodwl2 will join 1 and 3 (above)
+  ssh prodwl2 "hostname && cd /web/server/weblogic &&\
+    gzip -9c consolemsgs.txt >/log/consolemsgs.\`date +%y%m%d\`.gz &&\
+    cd /web/server/weblogic/myserver &&\
+    gzip -9c app2.log >/log/app2_log.\`date +%y%m%d\`.gz &&\
+    gzip -9c app2ejb.log >/log/app2ejb_log.\`date +%y%m%d\`.gz &&\
+    gzip -9c jdbc.log >/log/jdbc_log.\`date +%y%m%d\`.gz &&\
+    echo \"size before:\" &&\
+    du -k ../consolemsgs.txt app2.log app2ejb.log jdbc.log &&\
+    echo \"size zipped:\" &&\
+    du -k /log/consolemsgs.\`date +%y%m%d\`.gz\
+          /log/app2_log.\`date +%y%m%d\`.gz\
+          /log/app2ejb_log.\`date +%y%m%d\`.gz\
+          /log/jdbc_log.\`date +%y%m%d\`.gz"
+    echo "prodwl2 completed at `date`"
+
+# connect to nfs0 to zero logfiles until NFS/filesystem perms jive
+# zero prodwl1 logs
+  ssh nfs0 "hostname && cd /app1/weblogic61sp2_prodwl1 &&\
+    cat /dev/null >managed-prodwl1.log &&\
+    cat /dev/null >access.log &&\
+# zero prodwl3 logs
+    cd /app1/weblogic61sp2_prodwl3 &&\
+    cat /dev/null >managed-prodwl3.log &&\
+    cat /dev/null >access.log &&\
+# zero prodwl2 logs
+    cd /unassigned/weblogic/ &&\
+    cat /dev/null >consolemsgs.txt &&\
+    cd /unassigned/weblogic/myserver &&\
+    cat /dev/null >app2.log &&\
+    cat /dev/null >app2ejb.log &&\
+    cat /dev/null >jdbc.log"
+    echo "nfs0 log zeroing complete at `date`"
+echo "$0 completed at `date`"
+;;
+
+'real')
+  for SYSTEM in real1 real2 real3
+  do ssh $SYSTEM "hostname && cd /usr/local/real/Logs &&\
+    gzip -9c rmaccess.log > /log/rmaccess_log.\`date +%y%m%d\`.gz &&\
+    gzip -9c rmerror.log > /log/rmerror_log.\`date +%y%m%d\`.gz &&\
+    echo \"size before:\" &&\
+    du -k rmaccess.log rmerror.log &&\
+    echo \"size zipped:\" &&\
+    du -k /log/rmaccess_log.\`date +%y%m%d\`.gz\
+          /log/rmerror_log.\`date +%y%m%d\`.gz &&\
+    cat /dev/null > rmaccess.log &&\
+    cat /dev/null > rmerror.log"
+    echo "$SYSTEM complete at `date`"
+  done
+echo "$0 completed at `date`"
+;;
+
+*)
+  echo "Usage: ziplog { apache | weblogic | real }"
+;;
+
+esac

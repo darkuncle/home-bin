@@ -1,0 +1,76 @@
+#!/bin/sh
+
+# REQUIRES: nfs0:/log/<sysname> mounted locally on /log; gzip
+# USAGE: 'ziplog { apache|weblogic|real|prodwl2|single $file }'
+# makes compressed backup of indicated logfiles, and zeroes originals
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+# test if nfs0:/log/<hostname> is mounted locally as /log
+mount | grep "nfs0:/log" > /dev/null 2>&1 || exit "/log filesystem not mounted!"
+
+case "$1" in
+
+'apache')
+  cd /usr/local/apache/logs || exit "unable to cd apache dir!"
+  echo "zipping, zeroing apache logfiles - please wait ...\n"
+  gzip -9c access_log > /log/access_log.`date +%y%m%d`.gz \
+    && cat /dev/null > access_log
+  gzip -9c error_log > /log/error_log.`date +%y%m%d`.gz \
+    && cat /dev/null error_log
+  gzip -9c example.com-access_log > /log/example.com-access_log.`date +%y%m%d`.gz \
+    && cat /dev/null > example.com-access_log
+;;
+
+'weblogic')
+  cd /usr/local/weblogic || exit "unable to cd weblogic dir!"
+  echo "zipping, zeroing weblogic logfiles - please wait ...\n"
+  gzip -9c managed-`hostname`.log > \
+    /log/managed-`hostname`_log.`date +%y%m%d`.gz \
+    && cat /dev/null > managed-`hostname`.log
+  gzip -9c access.log > /log/access_log.`date +%y%m%d`.gz \
+    && cat /dev/null > access.log
+  cd /web/server/weblogic/myserver || exit "unable to cd myserver dir!"
+  gzip -9c app2.log > /log/app2_log.`date +%y%m%d`.gz \
+    && cat /dev/null > app2.log
+  gzip -9c app2ejb.log > /log/app2ejb_log.`date +%y%m%d`.gz \
+    && cat /dev/null > app2ejb.log
+;;
+
+'real')
+  cd /usr/local/real/Logs || exit "unable to cd real dir!"
+  echo "zipping RealServer logfiles - please wait ..."
+  gzip -9c rmaccess.log > /log/rmaccess_log.`date +%y%m%d`.gz \
+    && cat /dev/null > rmaccess.log
+  gzip -9c rmerror.log > /log/rmerror_log.`date +%y%m%d`.gz \
+    && cat /dev/null > rmerror.log
+;;
+
+'single')
+  # separate out filename and directory path
+  dir=`dirname "$2"`
+  file=`expr "$2" : '.*/\(.*\)'`
+  cd $dir || echo "unable to cd $dir!"
+  echo "zipping $file ...\n"
+  gzip -9c $file > /log/$file.`date +%y%m%d`.gz && cat /dev/null > $file
+;;
+
+'prodwl2')
+  cd /web/server/weblogic || exit "unable to cd weblogic dir!"
+  echo "zipping weblogic logfiles - please wait ..."
+  gzip -9c consolemsgs.txt > /log/consolemsgs.`date +%y%m%d`.gz \
+    && cat /dev/null > consolemsgs.txt
+  cd /web/server/weblogic/myserver || exit "unable to cd myserver!"
+  gzip -9c app2.log > /log/app2_log.`date +%y%m%d`.gz \
+    && cat /dev/null > app2.log
+  gzip -9c app2ejb.log > /log/app2ejb_log.`date +%y%m%d`.gz \
+    && cat /dev/null > app2ejb.log
+  gzip -9c jdbc.log > /log/jdbc_log.`date +%y%m%d`.gz \
+    && cat /dev/null > jdbc.log
+;;
+
+*)
+  echo "Usage: ziplog { apache|weblogic|real|prodwl2|single /path/to/logfile }"
+;;
+
+esac

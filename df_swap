@@ -1,0 +1,182 @@
+#!/usr/bin/perl -w
+#
+# TODO: identical/similar code into functions/subs to reduce duplication
+# function to read in a global exceptions list (/etc/df_swap ?)
+
+require 5.005;
+use strict;
+use FileHandle;
+use POSIX;
+use constant DEBUG => 0; # set to 1 to turn on debugging output
+
+sub debug {
+  print STDERR "@_\n" if DEBUG;
+}
+
+my @msgs = ();
+my ($last_warning, $current_time, $sendmail, $recipient, $top_cmd, $swap_cmd, $size, $free) = '';
+my $df_cmd = '/bin/df -k';
+my($sysname, $nodename, $release, $version, $machine) = uname();
+my $my_name        = 'df_swap@' . $nodename;
+my $reply_to       = 'admin@eonline.com';
+my $df_min_percent = 97; # alert if > 97% full
+my $df_min_kb      = 102400; # alert if < 100MB free
+my $swap_min_percent = 75; # alert if > 75% swap utilized
+my $swap_min_decimal = ($swap_min_percent / 100); # 0.75 instead of 75%
+my $swap_min_kb   = 51200; # alert if < 50MB free
+
+if (DEBUG) { $recipient = 'sfrancis@eonline.com'; }
+else { $recipient = 'page-admin@eonline.com, admin@eonline.com'; }
+
+if ($sysname eq 'SunOS') {
+  $sendmail = '/usr/lib/sendmail';
+  $top_cmd = '/usr/local/bin/top -d1';
+}
+elsif ($sysname eq 'Linux') {
+  $sendmail = '/usr/sbin/sendmail';
+}
+elsif ($sysname eq 'OpenBSD') {
+  $sendmail = '/usr/sbin/sendmail';
+  $swap_cmd = '/sbin/swapctl -l';
+}
+elsif ($sysname eq 'FreeBSD') {
+  $sendmail = '/usr/sbin/sendmail';
+  $swap_cmd = '/usr/sbin/swapinfo';
+}
+else { die "unsupported OS: $sysname"; }
+
+debug("sysname: $sysname\nnodename: $nodename\nrelease: $release\nversion: $version\nmachine: $machine\n");
+
+&dfscan;
+&swapscan;
+&notify;
+ 
+##############
+# begin subs #
+##############
+
+sub dfscan {
+
+  my $df = new FileHandle;
+  $df->open("$df_cmd |") or die "Can't execute $df_cmd: $!\n";
+
+  while ( $_ = $df->getline() ) {
+    chomp;
+    s/\s+/ /g;
+    my($fs, $size, $used, $free, $capacity, $mounted) = split(/\s+/, $_, 6);
+
+    next unless $fs       =~ /^\/dev|^swap/;
+    next unless $capacity =~ /\%/;
+    next if     $mounted  =~ /^\/cdrom|^\/boot/;
+    # this fs on chico is _always_ at exactly 98%; skip it
+    next if ($nodename eq 'chico' and $mounted =~ m#/usr/local/sybase/devices/system#);
+
+    $capacity =~ s/\%//;
+
+    # we use && rather than || here because many filesystems are 100MB or less
+    if ( (int($capacity) > $df_min_percent) && ($free < $df_min_kb) ) {
+      push(@msgs, "Only $free KB free on $mounted [$fs] ($capacity%)\n");
+    }
+  }
+
+  $df->close();
+
+} # end &dfscan
+
+
+sub swapscan {
+
+# if we're on Linux, parse /proc/meminfo
+# if FreeBSD, parse swapinfo(8) output
+# if OpenBSD, parse swapctl(8) output
+# if SunOS, parse top(1) output :)
+
+  if ($sysname eq 'Linux') {
+    open(MEMINFO, "/proc/meminfo") or die "Can't open /proc/meminfo: $!\n";
+      while (<MEMINFO>) {
+        chomp;
+        next unless /^Swap/;
+        if (/^SwapTotal:\s+(\d+) kB/) { $size = $1; debug("size: $size\n"); }
+        if (/^SwapFree:\s+(\d+) kB/) { $free = $1; debug("free: $free\n"); }
+      }
+    close (MEMINFO);
+    my $capacity = (($size - $free) / $size);
+    debug("% utilized: $capacity\n");
+    if ( $capacity > $swap_min_decimal) {
+      push(@msgs, "Only $free KB swap free ($capacity utilized)\n");
+    }
+  }
+
+  elsif ($sysname eq 'OpenBSD') {
+    debug("sysname (top): OpenBSD");
+    my $swapctl = new FileHandle;
+    $swapctl->open("$swap_cmd |") or die "Can't execute $swap_cmd: $!\n";
+    while ( $_ = $swapctl->getline() ) {
+      chomp;
+      next unless /^swap_device/;
+      my($device, $size, $used, $free, $capacity, $priority) = split(/\s+/, $_, 6);
+      debug("size: $size\nused: $used\nfree: $free\ncapacity: $capacity\n");
+      $capacity =~ s/\%//;
+      if ( (int($capacity) > $swap_min_percent) || ($free < $swap_min_kb) ) {
+        push(@msgs, "Only $free KB swap free ($capacity utilized)\n");
+      }
+    }
+  } # end OpenBSD
+
+  elsif ($sysname eq 'FreeBSD') {
+    debug("sysname (top): FreeBSD");
+    my $swapinfo = new FileHandle;
+    $swapinfo->open("$swap_cmd |") or die "Can't execute $swap_cmd: $!\n";
+    while ( $_ = $swapinfo->getline() ) {
+      chomp;
+      next unless /^\/dev/;
+      my($device, $size, $used, $free, $capacity, $type) = split(/\s+/, $_, 6);
+      debug("size: $size\nused: $used\nfree: $free\ncapacity: $capacity\n");
+      $capacity =~ s/\%//;
+      if ( (int($capacity) > $swap_min_percent) || ($free < $swap_min_kb) ) {
+        push(@msgs, "Only $free KB swap free ($capacity utilized)\n");
+      }
+    }
+  } # end FreeBSD
+
+  elsif ($sysname eq 'SunOS') {
+    debug("sysname (top): SunOS");
+    my $top = new FileHandle;
+    $top->open("$top_cmd |") or die "Can't execute $top_cmd: $!\n";
+    while ( $_ = $top->getline() ) {
+      chomp;
+      next unless /^Mem|^Swap/;
+      if (my ($used, $free) = /\b(\d+[KMG]) swap in use.*\b(\d+[KMG]) swap free/) {
+        debug("debug: solaris mem/swap: $_");
+        my %suffix = (M => 1024, G => 1024 * 1024);
+        $used =~ s/([MG])$// and $used *= $suffix{$1};
+        $free =~ s/([MG])$// and $free *= $suffix{$1};
+        debug("swap in use: $used KB");
+        debug("swap free: $free KB");
+        my $capacity = ($used / ($free + $used));
+        if ($free < $swap_min_kb) {
+          push(@msgs, "Only $free KB swap free ($capacity utilized)\n");
+        }
+      }
+    }
+  } # end SunOS
+
+} # end &memswap
+
+sub notify {
+
+  if ( scalar(@msgs) > 0 ) {
+    my $mail = new FileHandle;
+    $mail->open("| $sendmail -f$my_name $recipient") or die "Can't open sendmail!";
+    $mail->print("From: $my_name\n");
+    $mail->print("To: $recipient\n");
+    $mail->print("Subject: Disk space warning on $nodename\n\n");
+
+    foreach (@msgs) {
+	$mail->print($_, "\n");
+    }
+
+    $mail->close();
+  }
+
+} # end &notify

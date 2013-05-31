@@ -1,0 +1,38 @@
+#!/usr/bin/perl -w
+use strict ;
+
+# usage: prop_ssh_keys <targets>
+# NOTE: this script has setting assuming execution on an OpenBSD machine
+# with a Solaris target. YMMV.
+
+my $target ;
+my $scp = "/usr/bin/scp" ;
+my $ssh = "/usr/bin/ssh" ;
+my $cat = "/bin/cat" ;
+my $chmod = "/bin/chmod" ;
+my $dsa = "/root/.ssh/id_dsa.pub" ;
+my $rsa = "/root/.ssh/identity.pub" ;
+my $ak = "/.ssh/authorized_keys" ;
+my $ak2 = "/.ssh/authorized_keys2" ;
+my $rem_rsa = "/.ssh/crypto.rsa" ;
+my $rem_dsa = "/.ssh/crypto.dsa" ;
+
+if (!@ARGV) {
+  @ARGV = <STDIN> ;
+  chop(@ARGV) ;
+}
+
+for (@ARGV) {
+  $target = $_ ;
+  print "copying RSA key ...\n" ;
+  system("$scp $rsa $target:$rem_rsa") ;
+  print "setting RSA key in authorized_keys ...\n" ;
+  system("$ssh $target \"$cat $rem_rsa >> $ak\"") ;
+  print "setting permissions ... \n" ;
+  system("$ssh $target \"$chmod -R 0600 /.ssh\"") ;
+  print "copying DSA key ...\n" ;
+  system("$scp $dsa $target:$rem_dsa") ;
+  print "setting DSA in authorized_keys2 ...\n" ;
+  system("$ssh $target \"$cat $rem_dsa >> $ak2\"");
+}
+exit 1;

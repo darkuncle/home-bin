@@ -1,0 +1,150 @@
+#!/usr/bin/perl -w
+#
+#  genwhitelist -- generate Apache include-able directive from whitelists
+#                  in users' home directories
+#
+#  Copyright 2002, Rich Lafferty <rich@lafferty.ca>. Released under the
+#  same terms as Perl itself.
+#
+#  minor additional modifications by Scott Francis <darkuncle@darkuncle.net>.
+#
+# genwhitelist.2 - produces an Include file to whitelist /home/*/public_html
+#
+# usage: genwhitelist.2 /path/to/apache/conf/whitelist.htmldirs
+#
+# then in httpd.conf:
+# Include conf/whitelist.htmldirs
+
+use strict;
+use constant USER => 0;
+use constant HOME => 7;
+use constant DEBUG => 0;
+
+# set your apachectl location
+my $apachectl = "/usr/sbin/apachectl";
+debug("apachectl is $apachectl");
+
+sub debug {
+    print STDERR "@_\n" if DEBUG;
+}
+
+sub modsince { 
+    return (stat($_[0]))[9] > (stat($_[1]))[9];
+}
+
+die "Usage: $0 includefilename" unless $ARGV[0];
+my $gwl = $ARGV[0];
+
+my $begin =<<__A;
+<Directory /home/*/public_html>
+  Options Indexes FollowSymLinks MultiViews
+  AllowOverride none
+  Order deny,allow
+  Deny from all
+__A
+
+my $end =<<__B;
+</Directory>
+__B
+
+my $whitelist = ".whitelist";
+
+my $needs_rebuild;
+my @allow;
+
+setpwent();
+while (my @pwent = getpwent()) {
+    debug("User $pwent[USER]");
+    my $uwl = "$pwent[HOME]/$whitelist";
+
+    next unless -r $uwl and -s $uwl and -f $uwl;
+    debug("  $uwl exists");
+
+    $needs_rebuild++ if modsince($uwl, $gwl);
+    debug("  $uwl newer than $gwl");
+
+    unless (open(WL, "< $uwl")) {
+        warn "Can't open safe-looking file $uwl: $!\n";
+        next;
+    }
+
+    push @allow, "# $pwent[USER]";
+
+    while (<WL>) {
+        s/^\s+//;
+        s/\s+$//;
+        s/#.*$//;
+        next if /^#/;        # comment
+        next if /\s/;        # contains a space => illegal
+        next unless /\./;    # ip address and domains have dots!
+       
+        # is it an IP address?
+        if (/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/) {
+            next unless $1 < 256 and $2 < 256 and $3 < 256 and $4 < 256;
+            push @allow, "allow from $_";
+            debug("  '$_' is an IP address");
+        }
+
+        # or a CIDR block (/8 notation)?
+        elsif (m|^(\d+)\.(\d+)\.(\d+)\.(\d+)/(\d+)$|) {
+            next unless $1 < 256 and $2 < 256 and $3 < 256 and $4 < 256;
+            next unless $5 >= 24 and $5 <= 32; 
+            push @allow, "allow from $_";
+            debug("  '$_' is a CIDR block (/8 type)");
+        }
+
+        # or a CIDR block (/255.0.0.0 notation)?
+        elsif (m|^(\d+)\.(\d+)\.(\d+)\.(\d+)/255\.255\.255\.(\d+)$|) {
+            next unless $1 < 256 and $2 < 256 and $3 < 256 and $4 < 256 
+                        and $5 < 255;
+            push @allow, "allow from $_";
+            debug("  '$_' is a CIDR block (/255.0.0.0 type)");
+        }
+ 
+        # or a wildcarded domain? Just one wildcard please.
+        elsif (/^\*\.[^\*]+?\.[^\*]+$/) {
+            push @allow, "allow from $_";
+            debug("  '$_' is a wildcard domain");
+        }
+  
+        # or a literal hostname or domain?
+        elsif (/^[\w\.]/) {
+            next if /\*/; 
+# this only caught foo.bar.dom and not foo.dom
+# I guess it's up to the whitelist maintainer to make sure
+# somebody doesn't add, say, uu.net or genuity.com :)
+# thanks to skrewtape,leolo,hachi,#perl for the replacement regex
+#            next unless /\..*?\./;
+#            next unless /^(?:[-a-z0-9]+\.)*[-a-z0-9]+\.[a-z]{2,4}$/i;
+# (actually turns out I don't need it at all; the original was only
+# there to make sure that only foo.bar.dom would be matched and not
+# foo.dom)
+            push @allow, "allow from $_";
+            debug("  '$_' is a literal hostname or domain");
+        }
+        else {
+            debug("  '$_' is not useful")
+	}
+    } 
+    close WL or die "Can't close whitelist! $!";
+}
+endpwent();
+
+# If we need to rebuild, make new whitelist file and gracefully
+# reload Apache
+if ($needs_rebuild) {
+    debug ("Building whitelist in $ARGV[0]");
+    open(GWL, "> $ARGV[0]") or die "Can't write $ARGV[0]: $!\n";
+
+    print GWL $begin;
+    print GWL "  $_\n" for @allow;
+    print GWL $end;
+
+    close GWL or warn "Couldn't close $ARGV[0]: $!\n";
+
+    debug("Running apachectl graceful");
+    system("$apachectl", "graceful") and
+       system("$apachectl", "configtest");
+
+
+}

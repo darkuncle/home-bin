@@ -1,0 +1,33 @@
+#!/bin/sh
+
+OPTS="--update --progress"
+IDISK=/Volumes/darkuncle/Documents/
+LOCAL=/Users/sfrancis/Documents/
+
+case "$1" in
+'-n')
+  RSYNC="/usr/bin/rsync -nav"
+  $RSYNC $OPTS $IDISK $LOCAL
+  $RSYNC $OPTS $LOCAL $IDISK
+  ;;
+'-nd')
+  RSYNC="/usr/bin/rsync -nav"
+  $RSYNC $OPTS $IDISK $LOCAL
+  $RSYNC $OPTS --delete $LOCAL $IDISK
+  ;;
+'-d')
+  RSYNC="/usr/bin/rsync -av"
+  $RSYNC $OPTS $IDISK $LOCAL
+  $RSYNC $OPTS --delete $LOCAL $IDISK
+  ;;
+'')
+  RSYNC="/usr/bin/rsync -av"
+  $RSYNC $OPTS $IDISK $LOCAL
+  $RSYNC $OPTS $LOCAL $IDISK
+  ;;
+*)
+  echo "usage: $0 [-nd]"
+  exit 1
+  ;;
+esac
+

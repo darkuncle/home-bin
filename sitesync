@@ -1,0 +1,17 @@
+#!/bin/sh
+
+HOME=/home/sfrancis
+SSH_AUTH_SOCK=$HOME/.ssh/.agent
+HOST=eldwist
+RSYNC='/usr/local/bin/rsync -avz' # add '-n' for dry-run tests
+SSH='/usr/bin/ssh -c blowfish'
+BASE=/var/www/domains
+MIRROR=/storage
+SITE=$1
+
+# NOTE: $SSH must be enclosed in quotes since we can't put quotes into
+# the initial variable assignment itself
+
+$RSYNC -e "$SSH" $HOST:$BASE/$SITE/ $MIRROR/$SITE/
+echo "rsync for $SITE completed at `date`"
+echo ''

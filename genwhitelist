@@ -1,0 +1,7 @@
+#!/bin/sh
+# run 2 copies of genwhitelist to generate output for /mp3z
+# and /home/.html_dirs (and tools as well, since it has a
+# different Options syntax than the others *sigh*)
+/home/sfrancis/bin/genwhitelist.1 /var/www/conf/whitelist.mp3z
+/home/sfrancis/bin/genwhitelist.2 /var/www/conf/whitelist.htmldirs
+/home/sfrancis/bin/genwhitelist.3 /var/www/conf/whitelist.tools
